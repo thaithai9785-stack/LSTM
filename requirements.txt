@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+numpy
+tensorflow
+vnstock
+scikit-learn
+streamlit
+requests

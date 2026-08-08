@@ -1,0 +1,11 @@
+# Bỏ qua môi trường ảo
+.venv/
+env/
+
+# Bỏ qua file rác của Python
+__pycache__/
+*.pyc
+
+# Bỏ qua lịch sử biến động Mac/Windows
+.DS_Store
+Thumbs.db

@@ -10,7 +10,7 @@ st.set_page_config(page_title="AI Chứng Khoán", page_icon="📈", layout="cen
 st.title("📈 Hệ thống AI Dự báo Toàn Thị Trường")
 st.markdown("---")
 
-danh_sach_ma = ["FPT", "HPG", "TCB", "VCB", "SSI", "VND", "MWG", "VNM", "MSN", "VIC"]
+danh_sach_ma = ["ACV", "BVH", "FPT", "GAS", "HPG", "MSN", "MWG", "PLX", "POW", "SAB", "TCB", "VCB", "VIC", "VJC", "VNM"]
 ma_co_phieu = st.selectbox("🔍 Chọn mã cổ phiếu muốn phân tích:", danh_sach_ma)
 
 gia_hien_tai = st.number_input(f"Nhập giá {ma_co_phieu} hiện tại trên bảng điện (VNĐ):", min_value=1000, value=68000, step=100)

@@ -7,7 +7,7 @@ from sklearn.preprocessing import MinMaxScaler
 import os
 
 # Danh sách 10 mã siêu cổ phiếu
-danh_sach_ma = ["FPT", "HPG", "TCB", "VCB", "SSI", "VND", "MWG", "VNM", "MSN", "VIC"]
+danh_sach_ma = ["ACV", "BVH", "GAS", "PLX", "POW", "SAB", "VJC"]
 
 print("🚀 BẮT ĐẦU QUÁ TRÌNH HUẤN LUYỆN TỰ ĐỘNG 10 MÃ CỔ PHIẾU...")
 

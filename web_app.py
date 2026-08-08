@@ -25,7 +25,7 @@ if st.button(f"Dự đoán giá {ma_co_phieu} sau 3 ngày (T+3)", type="primary"
             else:
                 # 1. Load AI và kéo dữ liệu trực tiếp trên Web
                 model = load_model(model_path)
-                q = Quote(symbol=ma_co_phieu, source='dnse')
+                q = Quote(symbol=ma_co_phieu, source='msn')
                 df = q.history(start='2024-01-01', end='2026-08-08')
                 
                 features = ['close', 'open', 'high', 'low', 'volume']

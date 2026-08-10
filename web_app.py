@@ -37,8 +37,13 @@ if st.button("🔄 TỰ ĐỘNG LẤY GIÁ THỊ TRƯỜNG"):
                 # Kéo dữ liệu giá mới nhất của từng mã
                 q = Quote(symbol=ma, source='kbs')
                 df_temp = q.history(start='2024-01-01', end='2026-08-08') 
-                gia_chot = float(df_temp['close'].iloc[-1]) * 1000 # Lấy giá ngày cuối cùng x 1000
-                gia_moi.append(int(gia_chot))
+                
+                # Kiểm tra xem dữ liệu kéo về có bị rỗng/lỗi không
+                if df_temp is not None and not df_temp.empty:
+                    gia_chot = float(df_temp['close'].iloc[-1]) * 1000 # Lấy giá ngày cuối cùng x 1000
+                    gia_moi.append(int(gia_chot))
+                else:
+                    gia_moi.append(0)
             except Exception as e:
                 gia_moi.append(0) # Nếu lỗi (mã không tồn tại/lỗi mạng), để giá bằng 0
         
@@ -58,7 +63,7 @@ if st.button("⚡ QUÉT TOÀN BỘ DANH MỤC", type="primary", use_container_wi
     df_can_du_bao = df_nhap_lieu[df_nhap_lieu["Giá Hiện Tại (VNĐ)"] > 0]
     
     if df_can_du_bao.empty:
-        st.warning("⚠️ Vui lòng nhập giá cho ít nhất 1 mã cổ phiếu!")
+        st.warning("⚠️ Vui lòng nhập giá hoặc bấm nút lấy giá tự động cho ít nhất 1 mã cổ phiếu!")
     else:
         st.success(f"Đang phân tích {len(df_can_du_bao)} mã cổ phiếu...")
         st.markdown("---")
@@ -76,47 +81,54 @@ if st.button("⚡ QUÉT TOÀN BỘ DANH MỤC", type="primary", use_container_wi
                     
                     if not os.path.exists(model_path):
                         st.error(f"Chưa có bộ não AI cho mã {ma_co_phieu}. Vui lòng huấn luyện trước!")
+                        continue # Bỏ qua mã này, chạy tiếp mã sau
+                        
+                    # Load AI và kéo dữ liệu
+                    model = load_model(model_path)
+                    q = Quote(symbol=ma_co_phieu, source='kbs')
+                    df = q.history(start='2024-01-01', end='2026-08-08')
+                    
+                    # Bẫy lỗi: Nếu dữ liệu mạng trả về rỗng thì bỏ qua ngay lập tức
+                    if df is None or df.empty:
+                        st.error(f"Không thể tải được dữ liệu mạng cho mã {ma_co_phieu}. Bỏ qua mã này.")
+                        continue
+                        
+                    features = ['close', 'open', 'high', 'low', 'volume']
+                    data = df.filter(features).values
+                    
+                    scaler_close = MinMaxScaler(feature_range=(0, 1))
+                    scaler_close.fit(df.filter(['close']).values)
+                    
+                    scaler_all = MinMaxScaler(feature_range=(0, 1))
+                    scaled_data = scaler_all.fit_transform(data)
+                    
+                    last_60_days = scaled_data[-60:]
+                    X_input = np.reshape(last_60_days, (1, 60, 5))
+                    
+                    # Suy luận giá
+                    predicted_scaled = model.predict(X_input, verbose=0)
+                    gia_du_doan = float(scaler_close.inverse_transform(predicted_scaled)[0][0]) * 1000
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric(label="Mức Giá Cập Nhật", value=f"{gia_hien_tai:,.0f} VNĐ")
+                    with col2:
+                        st.metric(label="Mức Giá Dự Kiến (T+3)", value=f"{gia_du_doan:,.0f} VNĐ")
+                    
+                    ty_suat_thô = ((gia_du_doan - gia_hien_tai) / gia_hien_tai) * 100
+                    loi_nhuan_thuc_te = ty_suat_thô - 0.4 
+                    
+                    # Đưa ra khuyến nghị
+                    if loi_nhuan_thuc_te >= 1.5:
+                        st.success(f"🔥 **TÍN HIỆU: MUA ĐẸP** (Lãi ròng dự kiến: **+{loi_nhuan_thuc_te:.2f}%**)")
+                    elif loi_nhuan_thuc_te > 0:
+                        st.warning(f"⚠️ **TÍN HIỆU: ĐỨNG NGOÀI** (Lãi quá mỏng: **+{loi_nhuan_thuc_te:.2f}%**)")
                     else:
-                        # Load AI và kéo dữ liệu
-                        model = load_model(model_path)
-                        q = Quote(symbol=ma_co_phieu, source='kbs')
-                        df = q.history(start='2024-01-01', end='2026-08-08')
-                        
-                        features = ['close', 'open', 'high', 'low', 'volume']
-                        data = df.filter(features).values
-                        
-                        scaler_close = MinMaxScaler(feature_range=(0, 1))
-                        scaler_close.fit(df.filter(['close']).values)
-                        
-                        scaler_all = MinMaxScaler(feature_range=(0, 1))
-                        scaled_data = scaler_all.fit_transform(data)
-                        
-                        last_60_days = scaled_data[-60:]
-                        X_input = np.reshape(last_60_days, (1, 60, 5))
-                        
-                        # Suy luận giá
-                        predicted_scaled = model.predict(X_input, verbose=0)
-                        gia_du_doan = float(scaler_close.inverse_transform(predicted_scaled)[0][0]) * 1000
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.metric(label="Mức Giá Cập Nhật", value=f"{gia_hien_tai:,.0f} VNĐ")
-                        with col2:
-                            st.metric(label="Mức Giá Dự Kiến (T+3)", value=f"{gia_du_doan:,.0f} VNĐ")
-                        
-                        ty_suat_thô = ((gia_du_doan - gia_hien_tai) / gia_hien_tai) * 100
-                        loi_nhuan_thuc_te = ty_suat_thô - 0.4 
-                        
-                        # Đưa ra khuyến nghị
-                        if loi_nhuan_thuc_te >= 1.5:
-                            st.success(f"🔥 **TÍN HIỆU: MUA ĐẸP** (Lãi ròng dự kiến: **+{loi_nhuan_thuc_te:.2f}%**)")
-                        elif loi_nhuan_thuc_te > 0:
-                            st.warning(f"⚠️ **TÍN HIỆU: ĐỨNG NGOÀI** (Lãi quá mỏng: **+{loi_nhuan_thuc_te:.2f}%**)")
-                        else:
-                            st.error(f"❄️ **TÍN HIỆU: KHÔNG MUA / CẮT LỖ** (Dự kiến âm: **{loi_nhuan_thuc_te:.2f}%**)")
+                        st.error(f"❄️ **TÍN HIỆU: KHÔNG MUA / CẮT LỖ** (Dự kiến âm: **{loi_nhuan_thuc_te:.2f}%**)")
                             
                 except Exception as e:
-                    st.error(f"Hệ thống gặp sự cố với mã {ma_co_phieu}: {e}")
+                    # Bẫy lỗi: Đảm bảo app không sập nếu có bất cứ lỗi nào phát sinh
+                    st.error(f"⚠️ Mã {ma_co_phieu} gặp lỗi kết nối API: {e}. Hệ thống đã tự động bỏ qua để chạy tiếp.")
             
             st.markdown("---") 
             

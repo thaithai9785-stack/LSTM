@@ -28,13 +28,14 @@ with tab_quet:
     st.write("Bấm nút bên dưới để AI tự động cập nhật giá, hoặc bạn có thể tự gõ tay.")
 
     if st.button("🔄 TỰ ĐỘNG LẤY GIÁ THỊ TRƯỜNG"):
-        with st.spinner("Đang kết nối API với bảng điện VND..."):
+        with st.spinner("Đang kết nối API với bảng điện..."):
             gia_moi = []
             for ma in danh_sach_ma:
                 try:
-                    # ĐỔI NGUỒN SANG 'tcbs' ĐỂ CHỐNG TREO MẠNG
-                    q = Quote(symbol=ma, source='VND')
+                    # TRỞ LẠI NGUỒN 'kbs' CŨ
+                    q = Quote(symbol=ma, source='kbs') 
                     df_temp = q.history(start='2024-01-01', end='2026-08-08') 
+                    # BẪY LỖI: Chỉ lấy giá khi df có dữ liệu
                     if df_temp is not None and not df_temp.empty:
                         gia_chot = float(df_temp['close'].iloc[-1]) * 1000
                         gia_moi.append(int(gia_chot))
@@ -75,12 +76,13 @@ with tab_quet:
                             continue
                             
                         model = load_model(model_path)
-                        # ĐỔI NGUỒN SANG 'tcbs' ĐỂ CHỐNG TREO MẠNG
-                        q = Quote(symbol=ma_co_phieu, source='VND')
+                        # TRỞ LẠI NGUỒN 'kbs' CŨ
+                        q = Quote(symbol=ma_co_phieu, source='kbs')
                         df = q.history(start='2024-01-01', end='2026-08-08')
                         
+                        # BẪY LỖI MSN CŨ Ở ĐÂY
                         if df is None or df.empty:
-                            st.error(f"Lỗi tải dữ liệu mạng {ma_co_phieu}.")
+                            st.error(f"Không tải được dữ liệu mạng cho mã {ma_co_phieu}. Đã tự động bỏ qua để không bị treo.")
                             continue
                             
                         features = ['close', 'open', 'high', 'low', 'volume']
@@ -127,7 +129,7 @@ with tab_quet:
                         })
                                 
                     except Exception as e:
-                        st.error(f"⚠️ Mã {ma_co_phieu} gặp lỗi kết nối: {e}.")
+                        st.error(f"⚠️ Mã {ma_co_phieu} gặp lỗi kết nối: {e}. Đã tự động bỏ qua.")
                 
                 st.markdown("---") 
             

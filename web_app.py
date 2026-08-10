@@ -7,7 +7,7 @@ from sklearn.preprocessing import MinMaxScaler
 import os
 from datetime import datetime
 import gspread 
-import concurrent.futures 
+import threading # <-- VŨ KHÍ MỚI: Luồng ngầm cắt đứt kết nối treo
 
 st.set_page_config(page_title="AI Chứng Khoán", page_icon="📈", layout="centered")
 
@@ -25,10 +25,29 @@ def get_gspread_client():
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1NveHlCyiFd4-tbVH-dV9K2vPqydD-jPgPL75aIOCCOA/edit"
 
-# --- HÀM KÉO API CHO CẦU DAO ---
+# --- HÀM KÉO API GỐC ---
 def lay_du_lieu_api(ma):
     q = Quote(symbol=ma, source='kbs')
     return q.history(start='2024-01-01', end='2026-08-10')
+
+# --- CẦU DAO LUỒNG NGẦM (GIẢI QUYẾT TRIỆT ĐỂ LỖI TREO MSN) ---
+def lay_du_lieu_an_toan(ma, timeout_sec=15):
+    ket_qua = {'df': None}
+    
+    def worker():
+        try:
+            ket_qua['df'] = lay_du_lieu_api(ma)
+        except Exception:
+            pass
+            
+    # daemon=True: Khi hết giờ, hệ thống sẽ bỏ mặc luồng này, không chờ nó nữa!
+    t = threading.Thread(target=worker, daemon=True)
+    t.start()
+    t.join(timeout_sec)
+    
+    if t.is_alive():
+        return None # Trả về None ngay lập tức nếu KBS bị treo
+    return ket_qua['df']
 
 tab_quet, tab_lich_su = st.tabs(["📊 Bảng Điều Khiển T+3", "☁️ Lịch Sử Trên Mây"])
 
@@ -43,29 +62,33 @@ with tab_quet:
     st.write("Bấm nút bên dưới để AI tự động cập nhật giá, hoặc bạn có thể tự gõ tay.")
 
     if st.button("🔄 TỰ ĐỘNG LẤY GIÁ THỊ TRƯỜNG"):
-        with st.spinner("Đang kết nối API với bảng điện KBS (Đã bật xếp hàng chống treo)..."):
-            gia_moi = []
+        with st.spinner("Đang kết nối API với bảng điện KBS (Chia lô 3 mã để chống nghẽn)..."):
+            gia_dict = {}
             
-            # ĐÃ NÂNG CẤP: Giới hạn 3 luồng chạy cùng lúc để kbs không bị ngộp
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-                futures = {executor.submit(lay_du_lieu_api, ma): ma for ma in danh_sach_ma}
-                ket_qua_tam = {}
+            # Chia nhỏ 15 mã thành các lô 3 mã để máy chủ KBS không bị ngợp
+            for i in range(0, len(danh_sach_ma), 3):
+                batch = danh_sach_ma[i:i+3]
+                threads = []
                 
-                for future in concurrent.futures.as_completed(futures):
-                    ma = futures[future]
-                    try:
-                        df_temp = future.result(timeout=15) 
-                        if df_temp is not None and not df_temp.empty:
-                            gia_chot = float(df_temp['close'].iloc[-1]) * 1000
-                            ket_qua_tam[ma] = int(gia_chot)
-                        else:
-                            ket_qua_tam[ma] = 0
-                    except Exception:
-                        ket_qua_tam[ma] = 0 
+                for ma in batch:
+                    def worker_gia(m):
+                        try:
+                            df_temp = lay_du_lieu_api(m)
+                            if df_temp is not None and not df_temp.empty:
+                                gia_dict[m] = int(float(df_temp['close'].iloc[-1]) * 1000)
+                        except:
+                            pass
+                            
+                    t = threading.Thread(target=worker_gia, args=(ma,), daemon=True)
+                    t.start()
+                    threads.append(t)
                 
-                # Trả lại kết quả theo đúng thứ tự danh sách ban đầu
-                for ma in danh_sach_ma:
-                    gia_moi.append(ket_qua_tam.get(ma, 0))
+                # Chờ tối đa 12s cho mỗi lô 3 mã
+                for t in threads:
+                    t.join(timeout=12)
+            
+            # Lắp ráp lại theo đúng thứ tự
+            gia_moi = [gia_dict.get(ma, 0) for ma in danh_sach_ma]
             
             st.session_state.df_gia["Giá Hiện Tại (VNĐ)"] = gia_moi
             st.success("Đã cập nhật giá mới nhất thành công!")
@@ -87,85 +110,80 @@ with tab_quet:
             ngay_quet = thoi_gian_hien_tai.strftime("%Y-%m-%d")
             gio_quet = thoi_gian_hien_tai.strftime("%H:%M:%S")
             
-            # ĐÃ NÂNG CẤP: Giới hạn 3 luồng ở bước chạy AI
-            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-                for index, row in df_can_du_bao.iterrows():
-                    ma_co_phieu = row["Mã Cổ Phiếu"]
-                    gia_hien_tai = row["Giá Hiện Tại (VNĐ)"]
-                    
-                    st.markdown(f"#### 🔍 Mã: **{ma_co_phieu}**")
-                    
-                    with st.spinner(f"Đang chạy AI cho {ma_co_phieu}..."):
-                        try:
-                            model_path = f"{ma_co_phieu.lower()}_price_predictor.keras"
+            # Quét AI tuần tự từng mã với Cầu dao luồng ngầm
+            for index, row in df_can_du_bao.iterrows():
+                ma_co_phieu = row["Mã Cổ Phiếu"]
+                gia_hien_tai = row["Giá Hiện Tại (VNĐ)"]
+                
+                st.markdown(f"#### 🔍 Mã: **{ma_co_phieu}**")
+                
+                with st.spinner(f"Đang chạy AI cho {ma_co_phieu}..."):
+                    try:
+                        model_path = f"{ma_co_phieu.lower()}_price_predictor.keras"
+                        
+                        if not os.path.exists(model_path):
+                            st.error(f"Chưa có AI cho {ma_co_phieu}.")
+                            continue
                             
-                            if not os.path.exists(model_path):
-                                st.error(f"Chưa có AI cho {ma_co_phieu}.")
-                                continue
+                        model = load_model(model_path)
+                        
+                        # --- GỌI CẦU DAO LUỒNG NGẦM ---
+                        df = lay_du_lieu_an_toan(ma_co_phieu, timeout_sec=15)
+                        
+                        if df is None or df.empty:
+                            st.error(f"⚠️ KBS treo không nhả dữ liệu mã {ma_co_phieu}. Đã ép cắt đứt để chạy tiếp!")
+                            continue
+                            
+                        features = ['close', 'open', 'high', 'low', 'volume']
+                        data = df.filter(features).values
+                        
+                        scaler_close = MinMaxScaler(feature_range=(0, 1))
+                        scaler_close.fit(df.filter(['close']).values)
+                        scaler_all = MinMaxScaler(feature_range=(0, 1))
+                        scaled_data = scaler_all.fit_transform(data)
+                        
+                        last_60_days = scaled_data[-60:]
+                        X_input = np.reshape(last_60_days, (1, 60, 5))
+                        
+                        predicted_scaled = model.predict(X_input, verbose=0)
+                        gia_du_doan = float(scaler_close.inverse_transform(predicted_scaled)[0][0]) * 1000
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric(label="Mức Giá Cập Nhật", value=f"{gia_hien_tai:,.0f} VNĐ")
+                        with col2:
+                            st.metric(label="Mức Giá Dự Kiến (T+3)", value=f"{gia_du_doan:,.0f} VNĐ")
+                        
+                        ty_suat_thô = ((gia_du_doan - gia_hien_tai) / gia_hien_tai) * 100
+                        loi_nhuan_thuc_te = ty_suat_thô - 0.4 
+                        
+                        tin_hieu_chu = ""
+                        if loi_nhuan_thuc_te >= 1.5:
+                            tin_hieu_chu = "MUA ĐẸP"
+                            st.success(f"🔥 **TÍN HIỆU: {tin_hieu_chu}** (+{loi_nhuan_thuc_te:.2f}%)")
+                        elif loi_nhuan_thuc_te > 0:
+                            tin_hieu_chu = "ĐỨNG NGOÀI"
+                            st.warning(f"⚠️ **TÍN HIỆU: {tin_hieu_chu}** (+{loi_nhuan_thuc_te:.2f}%)")
+                        else:
+                            tin_hieu_chu = "KHÔNG MUA / CẮT LỖ"
+                            st.error(f"❄️ **TÍN HIỆU: {tin_hieu_chu}** ({loi_nhuan_thuc_te:.2f}%)")
+                        
+                        du_lieu_luu_tru.append([
+                            ngay_quet,
+                            gio_quet,
+                            ma_co_phieu,
+                            gia_hien_tai,
+                            int(gia_du_doan),
+                            round(loi_nhuan_thuc_te, 2),
+                            tin_hieu_chu
+                        ])
                                 
-                            model = load_model(model_path)
-                            
-                            future = executor.submit(lay_du_lieu_api, ma_co_phieu)
-                            # CẦU DAO CHỜ 15 GIÂY CHO NGUỒN KBS
-                            df = future.result(timeout=15)
-                            
-                            if df is None or df.empty:
-                                st.error(f"Không tải được dữ liệu mạng cho mã {ma_co_phieu}. Đã tự động bỏ qua.")
-                                continue
-                                
-                            features = ['close', 'open', 'high', 'low', 'volume']
-                            data = df.filter(features).values
-                            
-                            scaler_close = MinMaxScaler(feature_range=(0, 1))
-                            scaler_close.fit(df.filter(['close']).values)
-                            scaler_all = MinMaxScaler(feature_range=(0, 1))
-                            scaled_data = scaler_all.fit_transform(data)
-                            
-                            last_60_days = scaled_data[-60:]
-                            X_input = np.reshape(last_60_days, (1, 60, 5))
-                            
-                            predicted_scaled = model.predict(X_input, verbose=0)
-                            gia_du_doan = float(scaler_close.inverse_transform(predicted_scaled)[0][0]) * 1000
-                            
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.metric(label="Mức Giá Cập Nhật", value=f"{gia_hien_tai:,.0f} VNĐ")
-                            with col2:
-                                st.metric(label="Mức Giá Dự Kiến (T+3)", value=f"{gia_du_doan:,.0f} VNĐ")
-                            
-                            ty_suat_thô = ((gia_du_doan - gia_hien_tai) / gia_hien_tai) * 100
-                            loi_nhuan_thuc_te = ty_suat_thô - 0.4 
-                            
-                            tin_hieu_chu = ""
-                            if loi_nhuan_thuc_te >= 1.5:
-                                tin_hieu_chu = "MUA ĐẸP"
-                                st.success(f"🔥 **TÍN HIỆU: {tin_hieu_chu}** (+{loi_nhuan_thuc_te:.2f}%)")
-                            elif loi_nhuan_thuc_te > 0:
-                                tin_hieu_chu = "ĐỨNG NGOÀI"
-                                st.warning(f"⚠️ **TÍN HIỆU: {tin_hieu_chu}** (+{loi_nhuan_thuc_te:.2f}%)")
-                            else:
-                                tin_hieu_chu = "KHÔNG MUA / CẮT LỖ"
-                                st.error(f"❄️ **TÍN HIỆU: {tin_hieu_chu}** ({loi_nhuan_thuc_te:.2f}%)")
-                            
-                            du_lieu_luu_tru.append([
-                                ngay_quet,
-                                gio_quet,
-                                ma_co_phieu,
-                                gia_hien_tai,
-                                int(gia_du_doan),
-                                round(loi_nhuan_thuc_te, 2),
-                                tin_hieu_chu
-                            ])
-                                    
-                        except concurrent.futures.TimeoutError:
-                            st.error(f"⚠️ Máy chủ mạng treo quá 15 giây tại mã {ma_co_phieu}. Đã ép ngắt kết nối để chạy tiếp!")
-                        except Exception as e:
-                            st.error(f"⚠️ Mã {ma_co_phieu} gặp lỗi: {e}. Đã tự động bỏ qua.")
-                    
-                    st.markdown("---") 
+                    except Exception as e:
+                        st.error(f"⚠️ Mã {ma_co_phieu} gặp lỗi hệ thống: {e}. Đã tự động bỏ qua.")
+                
+                st.markdown("---") 
         
         if len(du_lieu_luu_tru) > 0:
-            # --- THUẬT TOÁN TẠO DÒNG TRỐNG Ở GOOGLE SHEETS ---
             du_lieu_luu_tru.append(["", "", "", "", "", "", ""]) 
             
             with st.spinner("Đang đồng bộ dữ liệu lên Google Sheets Đám Mây..."):
@@ -192,10 +210,7 @@ with tab_lich_su:
         
         if len(records) > 0:
             df_history = pd.DataFrame(records)
-            
-            # --- LỌC BỎ DÒNG TRỐNG TRÊN GIAO DIỆN WEB ---
             df_history = df_history[df_history['Mã CP'].astype(str).str.strip() != ""]
-            
             df_history = df_history.iloc[::-1] 
             
             if 'Ngày' in df_history.columns and 'Giờ' in df_history.columns:

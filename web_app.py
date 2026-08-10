@@ -5,20 +5,16 @@ from tensorflow.keras.models import load_model
 from vnstock.api.quote import Quote
 from sklearn.preprocessing import MinMaxScaler
 import os
-from datetime import datetime # Thêm thư viện xử lý thời gian
+from datetime import datetime
 
 st.set_page_config(page_title="AI Chứng Khoán", page_icon="📈", layout="centered")
 
 st.title("📈 Hệ thống AI Dự báo Toàn Thị Trường")
 st.markdown("---")
 
-# Khai báo danh sách mã và tên file lưu lịch sử
 danh_sach_ma = ["ACV", "BVH", "FPT", "GAS", "HPG", "MSN", "MWG", "PLX", "POW", "SAB", "TCB", "VCB", "VIC", "VJC", "VNM"]
 FILE_LICH_SU = "trading_log.csv"
 
-# ==========================================
-# THIẾT KẾ GIAO DIỆN CHIA 2 TAB
-# ==========================================
 tab_quet, tab_lich_su = st.tabs(["📊 Bảng Điều Khiển T+3", "🕒 Lịch Sử Dự Báo"])
 
 # ----------------- TAB 1: QUÉT TÍN HIỆU -----------------
@@ -32,11 +28,12 @@ with tab_quet:
     st.write("Bấm nút bên dưới để AI tự động cập nhật giá, hoặc bạn có thể tự gõ tay.")
 
     if st.button("🔄 TỰ ĐỘNG LẤY GIÁ THỊ TRƯỜNG"):
-        with st.spinner("Đang kết nối API với bảng điện..."):
+        with st.spinner("Đang kết nối API với bảng điện TCBS..."):
             gia_moi = []
             for ma in danh_sach_ma:
                 try:
-                    q = Quote(symbol=ma, source='kbs')
+                    # ĐỔI NGUỒN SANG 'tcbs' ĐỂ CHỐNG TREO MẠNG
+                    q = Quote(symbol=ma, source='tcbs')
                     df_temp = q.history(start='2024-01-01', end='2026-08-08') 
                     if df_temp is not None and not df_temp.empty:
                         gia_chot = float(df_temp['close'].iloc[-1]) * 1000
@@ -60,7 +57,6 @@ with tab_quet:
             st.success(f"Đang phân tích {len(df_can_du_bao)} mã cổ phiếu...")
             st.markdown("---")
             
-            # Khởi tạo mảng để gom dữ liệu lưu vào lịch sử
             du_lieu_luu_tru = []
             thoi_gian_quet = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
@@ -79,7 +75,8 @@ with tab_quet:
                             continue
                             
                         model = load_model(model_path)
-                        q = Quote(symbol=ma_co_phieu, source='kbs')
+                        # ĐỔI NGUỒN SANG 'tcbs' ĐỂ CHỐNG TREO MẠNG
+                        q = Quote(symbol=ma_co_phieu, source='tcbs')
                         df = q.history(start='2024-01-01', end='2026-08-08')
                         
                         if df is None or df.empty:
@@ -109,7 +106,6 @@ with tab_quet:
                         ty_suat_thô = ((gia_du_doan - gia_hien_tai) / gia_hien_tai) * 100
                         loi_nhuan_thuc_te = ty_suat_thô - 0.4 
                         
-                        # Phân loại tín hiệu
                         tin_hieu_chu = ""
                         if loi_nhuan_thuc_te >= 1.5:
                             tin_hieu_chu = "MUA ĐẸP"
@@ -121,7 +117,6 @@ with tab_quet:
                             tin_hieu_chu = "KHÔNG MUA / CẮT LỖ"
                             st.error(f"❄️ **TÍN HIỆU: {tin_hieu_chu}** ({loi_nhuan_thuc_te:.2f}%)")
                         
-                        # Gói dữ liệu mã này vào mảng
                         du_lieu_luu_tru.append({
                             "Thời gian": thoi_gian_quet,
                             "Mã CP": ma_co_phieu,
@@ -136,7 +131,6 @@ with tab_quet:
                 
                 st.markdown("---") 
             
-            # Ghi toàn bộ dữ liệu xuống file CSV
             if len(du_lieu_luu_tru) > 0:
                 df_log = pd.DataFrame(du_lieu_luu_tru)
                 if os.path.exists(FILE_LICH_SU):
@@ -154,14 +148,10 @@ with tab_lich_su:
     
     if os.path.exists(FILE_LICH_SU):
         df_history = pd.read_csv(FILE_LICH_SU)
-        # Đảo ngược dòng để lịch sử mới nhất nằm trên cùng
         df_history = df_history.iloc[::-1]
-        
-        # Hiển thị bảng dạng to, full màn hình
         st.dataframe(df_history, use_container_width=True, hide_index=True)
         
         st.markdown("---")
-        # Nút dọn dẹp data cũ
         if st.button("🗑️ Xóa sạch lịch sử", type="secondary"):
             os.remove(FILE_LICH_SU)
             st.rerun()

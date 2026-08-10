@@ -27,7 +27,7 @@ SHEET_URL = "https://docs.google.com/spreadsheets/d/1NveHlCyiFd4-tbVH-dV9K2vPqyd
 
 # --- HÀM KÉO API CHO CẦU DAO ---
 def lay_du_lieu_api(ma):
-    q = Quote(symbol=ma, source='kbs')
+    q = Quote(symbol=ma, source='DNSE')
     return q.history(start='2024-01-01', end='2026-08-10')
 
 tab_quet, tab_lich_su = st.tabs(["📊 Bảng Điều Khiển T+3", "☁️ Lịch Sử Trên Mây"])

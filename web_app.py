@@ -43,24 +43,29 @@ with tab_quet:
     st.write("Bấm nút bên dưới để AI tự động cập nhật giá, hoặc bạn có thể tự gõ tay.")
 
     if st.button("🔄 TỰ ĐỘNG LẤY GIÁ THỊ TRƯỜNG"):
-        with st.spinner("Đang kết nối API với bảng điện KBS..."):
+        with st.spinner("Đang kết nối API với bảng điện KBS (Đã bật xếp hàng chống treo)..."):
             gia_moi = []
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                for ma in danh_sach_ma:
+            
+            # ĐÃ NÂNG CẤP: Giới hạn 3 luồng chạy cùng lúc để kbs không bị ngộp
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                futures = {executor.submit(lay_du_lieu_api, ma): ma for ma in danh_sach_ma}
+                ket_qua_tam = {}
+                
+                for future in concurrent.futures.as_completed(futures):
+                    ma = futures[future]
                     try:
-                        future = executor.submit(lay_du_lieu_api, ma)
-                        # CẦU DAO CHỜ 15 GIÂY CHO NGUỒN KBS
                         df_temp = future.result(timeout=15) 
-                        
                         if df_temp is not None and not df_temp.empty:
                             gia_chot = float(df_temp['close'].iloc[-1]) * 1000
-                            gia_moi.append(int(gia_chot))
+                            ket_qua_tam[ma] = int(gia_chot)
                         else:
-                            gia_moi.append(0)
-                    except concurrent.futures.TimeoutError:
-                        gia_moi.append(0) 
+                            ket_qua_tam[ma] = 0
                     except Exception:
-                        gia_moi.append(0) 
+                        ket_qua_tam[ma] = 0 
+                
+                # Trả lại kết quả theo đúng thứ tự danh sách ban đầu
+                for ma in danh_sach_ma:
+                    gia_moi.append(ket_qua_tam.get(ma, 0))
             
             st.session_state.df_gia["Giá Hiện Tại (VNĐ)"] = gia_moi
             st.success("Đã cập nhật giá mới nhất thành công!")
@@ -82,7 +87,8 @@ with tab_quet:
             ngay_quet = thoi_gian_hien_tai.strftime("%Y-%m-%d")
             gio_quet = thoi_gian_hien_tai.strftime("%H:%M:%S")
             
-            with concurrent.futures.ThreadPoolExecutor() as executor:
+            # ĐÃ NÂNG CẤP: Giới hạn 3 luồng ở bước chạy AI
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
                 for index, row in df_can_du_bao.iterrows():
                     ma_co_phieu = row["Mã Cổ Phiếu"]
                     gia_hien_tai = row["Giá Hiện Tại (VNĐ)"]

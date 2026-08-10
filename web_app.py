@@ -7,7 +7,8 @@ from sklearn.preprocessing import MinMaxScaler
 import os
 from datetime import datetime
 import gspread 
-import threading # <-- VŨ KHÍ MỚI: Luồng ngầm cắt đứt kết nối treo
+import threading 
+import time # <-- VŨ KHÍ MỚI: Thư viện điều phối nhịp độ
 
 st.set_page_config(page_title="AI Chứng Khoán", page_icon="📈", layout="centered")
 
@@ -30,7 +31,7 @@ def lay_du_lieu_api(ma):
     q = Quote(symbol=ma, source='kbs')
     return q.history(start='2024-01-01', end='2026-08-10')
 
-# --- CẦU DAO LUỒNG NGẦM (GIẢI QUYẾT TRIỆT ĐỂ LỖI TREO MSN) ---
+# --- CẦU DAO LUỒNG NGẦM ---
 def lay_du_lieu_an_toan(ma, timeout_sec=15):
     ket_qua = {'df': None}
     
@@ -40,13 +41,12 @@ def lay_du_lieu_an_toan(ma, timeout_sec=15):
         except Exception:
             pass
             
-    # daemon=True: Khi hết giờ, hệ thống sẽ bỏ mặc luồng này, không chờ nó nữa!
     t = threading.Thread(target=worker, daemon=True)
     t.start()
     t.join(timeout_sec)
     
     if t.is_alive():
-        return None # Trả về None ngay lập tức nếu KBS bị treo
+        return None 
     return ket_qua['df']
 
 tab_quet, tab_lich_su = st.tabs(["📊 Bảng Điều Khiển T+3", "☁️ Lịch Sử Trên Mây"])
@@ -65,7 +65,6 @@ with tab_quet:
         with st.spinner("Đang kết nối API với bảng điện KBS (Chia lô 3 mã để chống nghẽn)..."):
             gia_dict = {}
             
-            # Chia nhỏ 15 mã thành các lô 3 mã để máy chủ KBS không bị ngợp
             for i in range(0, len(danh_sach_ma), 3):
                 batch = danh_sach_ma[i:i+3]
                 threads = []
@@ -83,11 +82,12 @@ with tab_quet:
                     t.start()
                     threads.append(t)
                 
-                # Chờ tối đa 12s cho mỗi lô 3 mã
                 for t in threads:
                     t.join(timeout=12)
+                    
+                # Nghỉ 1 giây sau mỗi lô 3 mã để KBS không khóa IP
+                time.sleep(1)
             
-            # Lắp ráp lại theo đúng thứ tự
             gia_moi = [gia_dict.get(ma, 0) for ma in danh_sach_ma]
             
             st.session_state.df_gia["Giá Hiện Tại (VNĐ)"] = gia_moi
@@ -110,7 +110,6 @@ with tab_quet:
             ngay_quet = thoi_gian_hien_tai.strftime("%Y-%m-%d")
             gio_quet = thoi_gian_hien_tai.strftime("%H:%M:%S")
             
-            # Quét AI tuần tự từng mã với Cầu dao luồng ngầm
             for index, row in df_can_du_bao.iterrows():
                 ma_co_phieu = row["Mã Cổ Phiếu"]
                 gia_hien_tai = row["Giá Hiện Tại (VNĐ)"]
@@ -127,11 +126,12 @@ with tab_quet:
                             
                         model = load_model(model_path)
                         
-                        # --- GỌI CẦU DAO LUỒNG NGẦM ---
                         df = lay_du_lieu_an_toan(ma_co_phieu, timeout_sec=15)
                         
                         if df is None or df.empty:
                             st.error(f"⚠️ KBS treo không nhả dữ liệu mã {ma_co_phieu}. Đã ép cắt đứt để chạy tiếp!")
+                            # NGHỈ MỆT 3 GIÂY ĐỂ TRÁNH HIỆU ỨNG DOMINO
+                            time.sleep(3) 
                             continue
                             
                         features = ['close', 'open', 'high', 'low', 'volume']
@@ -177,6 +177,9 @@ with tab_quet:
                             round(loi_nhuan_thuc_te, 2),
                             tin_hieu_chu
                         ])
+                        
+                        # Chạy thành công thì nghỉ ngơi 1 giây trước khi sang mã khác
+                        time.sleep(1)
                                 
                     except Exception as e:
                         st.error(f"⚠️ Mã {ma_co_phieu} gặp lỗi hệ thống: {e}. Đã tự động bỏ qua.")

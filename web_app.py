@@ -187,10 +187,19 @@ with tab_lich_su:
             st.dataframe(df_history, use_container_width=True, hide_index=True)
             
             st.markdown("---")
-            if st.button("🗑️ Xóa sạch lịch sử trên mây", type="secondary"):
-                worksheet.resize(1) 
-                st.rerun()
+            # --- THIẾT KẾ LẠI KHU VỰC NÚT BẤM ---
+            col1, col2 = st.columns(2)
+            with col1:
+                # Nút nhảy sang Google Sheets
+                st.link_button("🌐 MỞ TRỰC TIẾP FILE GOOGLE SHEETS", SHEET_URL, type="primary", use_container_width=True)
+            with col2:
+                # Nút xóa lịch sử
+                if st.button("🗑️ Xóa sạch lịch sử trên mây", type="secondary", use_container_width=True):
+                    worksheet.resize(1) 
+                    st.rerun()
         else:
             st.info("Chưa có dữ liệu nào. Hãy quét danh mục ở Tab 1 để đồng bộ lên mây.")
+            st.link_button("🌐 MỞ TRỰC TIẾP FILE GOOGLE SHEETS", SHEET_URL, type="primary")
+            
     except Exception as e:
         st.error(f"Không thể tải lịch sử: Lỗi chi tiết: {e}")

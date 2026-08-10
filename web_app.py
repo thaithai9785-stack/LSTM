@@ -8,7 +8,7 @@ import os
 from datetime import datetime
 import gspread 
 import threading 
-import time # <-- VŨ KHÍ MỚI: Thư viện điều phối nhịp độ
+import time 
 
 st.set_page_config(page_title="AI Chứng Khoán", page_icon="📈", layout="centered")
 
@@ -85,7 +85,6 @@ with tab_quet:
                 for t in threads:
                     t.join(timeout=12)
                     
-                # Nghỉ 1 giây sau mỗi lô 3 mã để KBS không khóa IP
                 time.sleep(1)
             
             gia_moi = [gia_dict.get(ma, 0) for ma in danh_sach_ma]
@@ -129,9 +128,19 @@ with tab_quet:
                         df = lay_du_lieu_an_toan(ma_co_phieu, timeout_sec=15)
                         
                         if df is None or df.empty:
-                            st.error(f"⚠️ KBS treo không nhả dữ liệu mã {ma_co_phieu}. Đã ép cắt đứt để chạy tiếp!")
-                            # NGHỈ MỆT 3 GIÂY ĐỂ TRÁNH HIỆU ỨNG DOMINO
-                            time.sleep(3) 
+                            st.error(f"⚠️ KBS treo! Đã tạo sẵn dòng cho mã {ma_co_phieu} trên Google Sheets để bạn nhập tay.")
+                            
+                            du_lieu_luu_tru.append([
+                                ngay_quet,
+                                gio_quet,
+                                ma_co_phieu,
+                                gia_hien_tai,
+                                0, 
+                                0.0,
+                                "⚠️ LỖI MẠNG - CẦN NHẬP TAY"
+                            ])
+                            
+                            time.sleep(15) 
                             continue
                             
                         features = ['close', 'open', 'high', 'low', 'volume']
@@ -178,16 +187,26 @@ with tab_quet:
                             tin_hieu_chu
                         ])
                         
-                        # Chạy thành công thì nghỉ ngơi 1 giây trước khi sang mã khác
                         time.sleep(1)
                                 
                     except Exception as e:
-                        st.error(f"⚠️ Mã {ma_co_phieu} gặp lỗi hệ thống: {e}. Đã tự động bỏ qua.")
+                        st.error(f"⚠️ Mã {ma_co_phieu} gặp lỗi hệ thống. Đã tạo dòng để nhập tay.")
+                        du_lieu_luu_tru.append([
+                            ngay_quet,
+                            gio_quet,
+                            ma_co_phieu,
+                            gia_hien_tai,
+                            0, 
+                            0.0,
+                            "⚠️ LỖI HỆ THỐNG - CẦN NHẬP TAY"
+                        ])
+                        time.sleep(15)
                 
                 st.markdown("---") 
         
         if len(du_lieu_luu_tru) > 0:
-            du_lieu_luu_tru.append(["", "", "", "", "", "", ""]) 
+            # SỬA LẠI: Thay bằng dòng kẻ ngang phân cách để Sheets không ghi đè
+            du_lieu_luu_tru.append(["---", "---", "---", "---", "---", "---", "---"]) 
             
             with st.spinner("Đang đồng bộ dữ liệu lên Google Sheets Đám Mây..."):
                 try:
@@ -213,7 +232,11 @@ with tab_lich_su:
         
         if len(records) > 0:
             df_history = pd.DataFrame(records)
+            
+            # ẨN CÁC DÒNG KẺ NGANG TRÊN WEB
             df_history = df_history[df_history['Mã CP'].astype(str).str.strip() != ""]
+            df_history = df_history[~df_history['Mã CP'].astype(str).str.contains("---", na=False)]
+            
             df_history = df_history.iloc[::-1] 
             
             if 'Ngày' in df_history.columns and 'Giờ' in df_history.columns:

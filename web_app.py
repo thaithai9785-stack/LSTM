@@ -14,24 +14,48 @@ st.markdown("---")
 # Khai báo danh sách mã
 danh_sach_ma = ["ACV", "BVH", "FPT", "GAS", "HPG", "MSN", "MWG", "PLX", "POW", "SAB", "TCB", "VCB", "VIC", "VJC", "VNM"]
 
-# Giao diện Bảng nhập liệu
+# ==========================================
+# GIAI ĐOẠN 2: TỰ ĐỘNG LẤY GIÁ & QUẢN LÝ BẢNG
+# ==========================================
+
+# Khởi tạo bộ nhớ tạm (session_state) cho bảng dữ liệu nếu chưa có
+if "df_gia" not in st.session_state:
+    st.session_state.df_gia = pd.DataFrame({
+        "Mã Cổ Phiếu": danh_sach_ma,
+        "Giá Hiện Tại (VNĐ)": [0] * len(danh_sach_ma)
+    })
+
 st.markdown("### 📊 Bảng Điều Khiển Danh Mục T+3")
-st.write("Nhập giá hiện tại vào cột bên dưới. Bạn có thể nhập nhiều mã cùng lúc (những mã để giá trị 0 hệ thống sẽ tự động bỏ qua).")
+st.write("Bấm nút bên dưới để AI tự động cập nhật giá mới nhất từ bảng điện, hoặc bạn có thể tự nhập tay.")
 
-# 1. Tạo bảng dữ liệu mặc định
-df_mac_dinh = pd.DataFrame({
-    "Mã Cổ Phiếu": danh_sach_ma,
-    "Giá Nhập Tay (VNĐ)": [0] * len(danh_sach_ma)
-})
+# Nút tự động kéo giá
+if st.button("🔄 TỰ ĐỘNG LẤY GIÁ THỊ TRƯỜNG"):
+    with st.spinner("Đang kết nối API với bảng điện để lấy giá mới nhất..."):
+        gia_moi = []
+        for ma in danh_sach_ma:
+            try:
+                # Kéo dữ liệu giá mới nhất của từng mã
+                q = Quote(symbol=ma, source='kbs')
+                df_temp = q.history(start='2024-01-01', end='2026-08-08') 
+                gia_chot = float(df_temp['close'].iloc[-1]) * 1000 # Lấy giá ngày cuối cùng x 1000
+                gia_moi.append(int(gia_chot))
+            except Exception as e:
+                gia_moi.append(0) # Nếu lỗi (mã không tồn tại/lỗi mạng), để giá bằng 0
+        
+        # Cập nhật lại bộ nhớ tạm
+        st.session_state.df_gia["Giá Hiện Tại (VNĐ)"] = gia_moi
+        st.success("Đã cập nhật giá mới nhất thành công!")
 
-# 2. Hiển thị bảng để nhập liệu
-df_nhap_lieu = st.data_editor(df_mac_dinh, hide_index=True, use_container_width=True)
+# ==========================================
 
-# 3. Nút quét hàng loạt
+# Hiển thị bảng tương tác (được liên kết với bộ nhớ tạm)
+df_nhap_lieu = st.data_editor(st.session_state.df_gia, hide_index=True, use_container_width=True)
+
+# Nút quét hàng loạt
 if st.button("⚡ QUÉT TOÀN BỘ DANH MỤC", type="primary", use_container_width=True):
     
     # Lọc ra các mã có giá trị nhập > 0
-    df_can_du_bao = df_nhap_lieu[df_nhap_lieu["Giá Nhập Tay (VNĐ)"] > 0]
+    df_can_du_bao = df_nhap_lieu[df_nhap_lieu["Giá Hiện Tại (VNĐ)"] > 0]
     
     if df_can_du_bao.empty:
         st.warning("⚠️ Vui lòng nhập giá cho ít nhất 1 mã cổ phiếu!")
@@ -42,7 +66,7 @@ if st.button("⚡ QUÉT TOÀN BỘ DANH MỤC", type="primary", use_container_wi
         # Bắt đầu vòng lặp chạy từng mã
         for index, row in df_can_du_bao.iterrows():
             ma_co_phieu = row["Mã Cổ Phiếu"]
-            gia_hien_tai = row["Giá Nhập Tay (VNĐ)"]
+            gia_hien_tai = row["Giá Hiện Tại (VNĐ)"]
             
             st.markdown(f"#### 🔍 Kết quả phân tích mã: **{ma_co_phieu}**")
             
@@ -53,7 +77,7 @@ if st.button("⚡ QUÉT TOÀN BỘ DANH MỤC", type="primary", use_container_wi
                     if not os.path.exists(model_path):
                         st.error(f"Chưa có bộ não AI cho mã {ma_co_phieu}. Vui lòng huấn luyện trước!")
                     else:
-                        # 1. Load AI và kéo dữ liệu
+                        # Load AI và kéo dữ liệu
                         model = load_model(model_path)
                         q = Quote(symbol=ma_co_phieu, source='kbs')
                         df = q.history(start='2024-01-01', end='2026-08-08')
@@ -70,20 +94,20 @@ if st.button("⚡ QUÉT TOÀN BỘ DANH MỤC", type="primary", use_container_wi
                         last_60_days = scaled_data[-60:]
                         X_input = np.reshape(last_60_days, (1, 60, 5))
                         
-                        # 2. Suy luận giá
+                        # Suy luận giá
                         predicted_scaled = model.predict(X_input, verbose=0)
                         gia_du_doan = float(scaler_close.inverse_transform(predicted_scaled)[0][0]) * 1000
                         
                         col1, col2 = st.columns(2)
                         with col1:
-                            st.metric(label="Mức Giá Bạn Nhập", value=f"{gia_hien_tai:,.0f} VNĐ")
+                            st.metric(label="Mức Giá Cập Nhật", value=f"{gia_hien_tai:,.0f} VNĐ")
                         with col2:
                             st.metric(label="Mức Giá Dự Kiến (T+3)", value=f"{gia_du_doan:,.0f} VNĐ")
                         
                         ty_suat_thô = ((gia_du_doan - gia_hien_tai) / gia_hien_tai) * 100
                         loi_nhuan_thuc_te = ty_suat_thô - 0.4 
                         
-                        # 3. Đưa ra khuyến nghị
+                        # Đưa ra khuyến nghị
                         if loi_nhuan_thuc_te >= 1.5:
                             st.success(f"🔥 **TÍN HIỆU: MUA ĐẸP** (Lãi ròng dự kiến: **+{loi_nhuan_thuc_te:.2f}%**)")
                         elif loi_nhuan_thuc_te > 0:
@@ -94,6 +118,6 @@ if st.button("⚡ QUÉT TOÀN BỘ DANH MỤC", type="primary", use_container_wi
                 except Exception as e:
                     st.error(f"Hệ thống gặp sự cố với mã {ma_co_phieu}: {e}")
             
-            st.markdown("---") # Kẻ đường phân cách giữa các mã
+            st.markdown("---") 
             
-        st.balloons() # Bắn bóng bay khi quét xong toàn bộ
+        st.balloons()

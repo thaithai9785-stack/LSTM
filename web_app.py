@@ -49,7 +49,7 @@ with tab_quet:
                 for ma in danh_sach_ma:
                     try:
                         future = executor.submit(lay_du_lieu_api, ma)
-                        df_temp = future.result(timeout=8) 
+                        df_temp = future.result(timeout=15) 
                         
                         if df_temp is not None and not df_temp.empty:
                             gia_chot = float(df_temp['close'].iloc[-1]) * 1000
@@ -100,7 +100,7 @@ with tab_quet:
                             model = load_model(model_path)
                             
                             future = executor.submit(lay_du_lieu_api, ma_co_phieu)
-                            df = future.result(timeout=8)
+                            df = future.result(timeout=15)
                             
                             if df is None or df.empty:
                                 st.error(f"Không tải được dữ liệu mạng cho mã {ma_co_phieu}. Đã tự động bỏ qua.")

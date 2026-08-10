@@ -28,12 +28,12 @@ with tab_quet:
     st.write("Bấm nút bên dưới để AI tự động cập nhật giá, hoặc bạn có thể tự gõ tay.")
 
     if st.button("🔄 TỰ ĐỘNG LẤY GIÁ THỊ TRƯỜNG"):
-        with st.spinner("Đang kết nối API với bảng điện TCBS..."):
+        with st.spinner("Đang kết nối API với bảng điện VND..."):
             gia_moi = []
             for ma in danh_sach_ma:
                 try:
                     # ĐỔI NGUỒN SANG 'tcbs' ĐỂ CHỐNG TREO MẠNG
-                    q = Quote(symbol=ma, source='tcbs')
+                    q = Quote(symbol=ma, source='VND')
                     df_temp = q.history(start='2024-01-01', end='2026-08-08') 
                     if df_temp is not None and not df_temp.empty:
                         gia_chot = float(df_temp['close'].iloc[-1]) * 1000
@@ -76,7 +76,7 @@ with tab_quet:
                             
                         model = load_model(model_path)
                         # ĐỔI NGUỒN SANG 'tcbs' ĐỂ CHỐNG TREO MẠNG
-                        q = Quote(symbol=ma_co_phieu, source='tcbs')
+                        q = Quote(symbol=ma_co_phieu, source='VND')
                         df = q.history(start='2024-01-01', end='2026-08-08')
                         
                         if df is None or df.empty:

@@ -6,3 +6,4 @@ vnstock
 scikit-learn
 streamlit
 requests
+gspread

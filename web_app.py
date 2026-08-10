@@ -49,6 +49,7 @@ with tab_quet:
                 for ma in danh_sach_ma:
                     try:
                         future = executor.submit(lay_du_lieu_api, ma)
+                        # CẦU DAO CHỜ 15 GIÂY CHO NGUỒN KBS
                         df_temp = future.result(timeout=15) 
                         
                         if df_temp is not None and not df_temp.empty:
@@ -77,7 +78,6 @@ with tab_quet:
             
             du_lieu_luu_tru = []
             
-            # --- CHUẨN HÓA DỮ LIỆU: TÁCH CỘT NGÀY VÀ GIỜ ---
             thoi_gian_hien_tai = datetime.now()
             ngay_quet = thoi_gian_hien_tai.strftime("%Y-%m-%d")
             gio_quet = thoi_gian_hien_tai.strftime("%H:%M:%S")
@@ -100,6 +100,7 @@ with tab_quet:
                             model = load_model(model_path)
                             
                             future = executor.submit(lay_du_lieu_api, ma_co_phieu)
+                            # CẦU DAO CHỜ 15 GIÂY CHO NGUỒN KBS
                             df = future.result(timeout=15)
                             
                             if df is None or df.empty:
@@ -140,7 +141,6 @@ with tab_quet:
                                 tin_hieu_chu = "KHÔNG MUA / CẮT LỖ"
                                 st.error(f"❄️ **TÍN HIỆU: {tin_hieu_chu}** ({loi_nhuan_thuc_te:.2f}%)")
                             
-                            # Cấu trúc mảng 7 cột mới
                             du_lieu_luu_tru.append([
                                 ngay_quet,
                                 gio_quet,
@@ -152,13 +152,16 @@ with tab_quet:
                             ])
                                     
                         except concurrent.futures.TimeoutError:
-                            st.error(f"⚠️ Máy chủ mạng treo quá 8 giây tại mã {ma_co_phieu}. Đã ép ngắt kết nối để chạy tiếp!")
+                            st.error(f"⚠️ Máy chủ mạng treo quá 15 giây tại mã {ma_co_phieu}. Đã ép ngắt kết nối để chạy tiếp!")
                         except Exception as e:
                             st.error(f"⚠️ Mã {ma_co_phieu} gặp lỗi: {e}. Đã tự động bỏ qua.")
                     
                     st.markdown("---") 
         
         if len(du_lieu_luu_tru) > 0:
+            # --- THUẬT TOÁN TẠO DÒNG TRỐNG Ở GOOGLE SHEETS ---
+            du_lieu_luu_tru.append(["", "", "", "", "", "", ""]) 
+            
             with st.spinner("Đang đồng bộ dữ liệu lên Google Sheets Đám Mây..."):
                 try:
                     gc = get_gspread_client()
@@ -183,37 +186,34 @@ with tab_lich_su:
         
         if len(records) > 0:
             df_history = pd.DataFrame(records)
-            df_history = df_history.iloc[::-1] # Đảo ngược để dữ liệu mới nhất lên trên
             
-            # --- BỘ LỌC GIAO DIỆN ---
+            # --- LỌC BỎ DÒNG TRỐNG TRÊN GIAO DIỆN WEB ---
+            df_history = df_history[df_history['Mã CP'].astype(str).str.strip() != ""]
+            
+            df_history = df_history.iloc[::-1] 
+            
             if 'Ngày' in df_history.columns and 'Giờ' in df_history.columns:
-                # Tạo một cột gộp tạm thời để đưa vào Hộp chọn (Selectbox)
                 df_history['Phiên Quét'] = df_history['Ngày'].astype(str) + " | " + df_history['Giờ'].astype(str)
                 danh_sach_phien = df_history['Phiên Quét'].unique()
                 
                 phien_chon = st.selectbox("📅 Trích xuất lịch sử theo Phiên:", ["Tất cả các phiên"] + list(danh_sach_phien))
                 
                 if phien_chon != "Tất cả các phiên":
-                    # Lọc dữ liệu theo phiên được chọn
                     df_hien_thi = df_history[df_history['Phiên Quét'] == phien_chon]
                 else:
                     df_hien_thi = df_history
                 
-                # Xóa cột gộp tạm thời trước khi hiển thị bảng
                 df_hien_thi = df_hien_thi.drop(columns=['Phiên Quét'])
             else:
-                # Dành cho trường hợp dữ liệu cũ chưa có cột Ngày/Giờ
                 df_hien_thi = df_history
                 
             st.dataframe(df_hien_thi, use_container_width=True, hide_index=True)
             
             st.markdown("---")
-            # --- HAI NÚT BẤM (XEM SHEET VÀ XÓA SHEET) ---
             col1, col2 = st.columns(2)
             with col1:
                 st.link_button("🌐 MỞ TRỰC TIẾP FILE GOOGLE SHEETS", SHEET_URL, type="primary", use_container_width=True)
             with col2:
-                # Nút này được nâng cấp: Vừa xóa data cũ, vừa tạo sẵn cấu trúc 7 cột chuẩn mới
                 if st.button("🗑️ Xóa lịch sử & Đặt lại cấu trúc", type="secondary", use_container_width=True):
                     worksheet.clear()
                     worksheet.append_row(["Ngày", "Giờ", "Mã CP", "Giá Cập Nhật", "Giá T+3 Dự Kiến", "Lãi Dự Kiến (%)", "Tín Hiệu"])

@@ -10,7 +10,7 @@ import gspread
 import threading 
 import time 
 
-st.set_page_config(page_title="AI Chứng Khoán", page_icon="📈", layout="wide") # Mở rộng màn hình để xem bảng so sánh cho đã
+st.set_page_config(page_title="AI Chứng Khoán", page_icon="📈", layout="wide") 
 
 st.title("📈 Hệ thống AI Dự báo Toàn Thị Trường")
 st.markdown("---")
@@ -26,10 +26,12 @@ def get_gspread_client():
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1NveHlCyiFd4-tbVH-dV9K2vPqydD-jPgPL75aIOCCOA/edit"
 
-# --- HÀM KÉO API GỐC ---
+# --- HÀM KÉO API GỐC (ĐÃ SỬA LỖI NGÀY THÁNG) ---
 def lay_du_lieu_api(ma):
     q = Quote(symbol=ma, source='kbs')
-    return q.history(start='2024-01-01', end='2026-08-10')
+    # Tự động lấy ngày hôm nay, không bị kẹt giá cũ nữa
+    ngay_hien_tai = datetime.now().strftime('%Y-%m-%d') 
+    return q.history(start='2024-01-01', end=ngay_hien_tai)
 
 # --- CẦU DAO LUỒNG NGẦM ---
 def lay_du_lieu_an_toan(ma, timeout_sec=15):
@@ -49,7 +51,7 @@ def lay_du_lieu_an_toan(ma, timeout_sec=15):
         return None 
     return ket_qua['df']
 
-# --- BỔ SUNG TAB THỨ 3 ---
+
 tab_quet, tab_lich_su, tab_so_sanh = st.tabs(["📊 Bảng Điều Khiển T+3", "☁️ Lịch Sử Trên Mây", "⚖️ Đối Chiếu Lãi/Lỗ T+3"])
 
 # ----------------- TAB 1: QUÉT TÍN HIỆU -----------------
@@ -60,7 +62,7 @@ with tab_quet:
             "Giá Hiện Tại (VNĐ)": [0] * len(danh_sach_ma)
         })
 
-    st.write("Bấm nút bên dưới để AI tự động cập nhật giá, hoặc bạn có thể tự gõ tay.")
+    st.write("Bấm nút bên dưới để AI tự động cập nhật giá, hoặc bạn có thể tự gõ tay (Dựa vào giá Real-time trên app).")
 
     if st.button("🔄 TỰ ĐỘNG LẤY GIÁ THỊ TRƯỜNG"):
         with st.spinner("Đang kết nối API với bảng điện KBS (Chia lô 3 mã để chống nghẽn)..."):
@@ -246,6 +248,26 @@ with tab_lich_su:
                 
                 if phien_chon != "Tất cả các phiên":
                     df_hien_thi = df_history_dao_nguoc[df_history_dao_nguoc['Phiên Quét'] == phien_chon]
+                    
+                    # NÚT XÓA RIÊNG PHIÊN ĐANG CHỌN
+                    if st.button(f"🗑️ Xóa dữ liệu của riêng phiên {phien_chon}", type="primary"):
+                        with st.spinner("Đang gỡ bỏ phiên này khỏi Google Sheets..."):
+                            ngay_xoa, gio_xoa = phien_chon.split(" | ")
+                            df_raw = pd.DataFrame(records)
+                            
+                            # Giữ lại các dòng không trùng với Ngày và Giờ cần xóa
+                            df_new = df_raw[~((df_raw['Ngày'].astype(str) == ngay_xoa) & (df_raw['Giờ'].astype(str) == gio_xoa))]
+                            
+                            worksheet.clear()
+                            if not df_new.empty:
+                                worksheet.append_row(df_new.columns.values.tolist())
+                                worksheet.append_rows(df_new.values.tolist())
+                            else:
+                                worksheet.append_row(["Ngày", "Giờ", "Mã CP", "Giá Cập Nhật", "Giá T+3 Dự Kiến", "Lãi Dự Kiến (%)", "Tín Hiệu"])
+                            
+                            st.success("Đã dọn dẹp phiên thành công!")
+                            time.sleep(1)
+                            st.rerun()
                 else:
                     df_hien_thi = df_history_dao_nguoc
                 
@@ -258,9 +280,9 @@ with tab_lich_su:
             st.markdown("---")
             col1, col2 = st.columns(2)
             with col1:
-                st.link_button("🌐 MỞ TRỰC TIẾP FILE GOOGLE SHEETS", SHEET_URL, type="primary", use_container_width=True)
+                st.link_button("🌐 MỞ TRỰC TIẾP FILE GOOGLE SHEETS", SHEET_URL, type="secondary", use_container_width=True)
             with col2:
-                if st.button("🗑️ Xóa lịch sử & Đặt lại cấu trúc", type="secondary", use_container_width=True):
+                if st.button("🚨 XÓA TẤT CẢ LỊCH SỬ & Đặt lại cấu trúc", type="secondary", use_container_width=True):
                     worksheet.clear()
                     worksheet.append_row(["Ngày", "Giờ", "Mã CP", "Giá Cập Nhật", "Giá T+3 Dự Kiến", "Lãi Dự Kiến (%)", "Tín Hiệu"])
                     st.rerun()
@@ -278,7 +300,6 @@ with tab_so_sanh:
     
     try:
         if 'df_history' in locals() and not df_history.empty and 'Ngày' in df_history.columns:
-            # Tạo cột Phiên Quét nhưng giữ nguyên chiều cũ để lấy thời gian chuẩn
             df_full = df_history.copy()
             df_full['Phiên Quét'] = df_full['Ngày'].astype(str) + " | " + df_full['Giờ'].astype(str)
             danh_sach_phien_so_sanh = df_full['Phiên Quét'].unique()
@@ -291,31 +312,24 @@ with tab_so_sanh:
                     phien_ban = st.selectbox("💰 Chọn phiên BÁN (T+3):", danh_sach_phien_so_sanh, index=len(danh_sach_phien_so_sanh)-1)
                 
                 if st.button("🚀 Bắt đầu đối chiếu", type="primary", use_container_width=True):
-                    # Tách dữ liệu phiên mua và phiên bán
                     df_mua = df_full[df_full['Phiên Quét'] == phien_mua][['Mã CP', 'Giá Cập Nhật', 'Giá T+3 Dự Kiến', 'Lãi Dự Kiến (%)', 'Tín Hiệu']]
                     df_ban = df_full[df_full['Phiên Quét'] == phien_ban][['Mã CP', 'Giá Cập Nhật']]
                     
-                    # Đổi tên cột cho dễ hiểu
                     df_mua = df_mua.rename(columns={'Giá Cập Nhật': 'Giá Vốn (T0)', 'Lãi Dự Kiến (%)': 'Lãi AI Dự Báo (%)', 'Tín Hiệu': 'Tín Hiệu Ban Đầu'})
                     df_ban = df_ban.rename(columns={'Giá Cập Nhật': 'Giá Chốt Lời (T+3)'})
                     
-                    # Chập 2 bảng lại với nhau dựa trên Mã Cổ Phiếu
                     df_ket_qua = pd.merge(df_mua, df_ban, on='Mã CP', how='inner')
                     
-                    # Lọc bỏ các dòng có Giá Vốn bằng 0 (lỗi lấy dữ liệu)
                     df_ket_qua = df_ket_qua[df_ket_qua['Giá Vốn (T0)'] > 0]
                     
-                    # Tính toán thực tế
                     df_ket_qua['Lãi Thực Tế (%)'] = round(((df_ket_qua['Giá Chốt Lời (T+3)'] - df_ket_qua['Giá Vốn (T0)']) / df_ket_qua['Giá Vốn (T0)']) * 100 - 0.4, 2)
                     
-                    # Chấm điểm AI
                     df_ket_qua['Chấm Điểm AI'] = np.where(
                         (df_ket_qua['Lãi Thực Tế (%)'] > 0) & (df_ket_qua['Lãi AI Dự Báo (%)'] > 0), "✅ Cùng Lãi",
                         np.where((df_ket_qua['Lãi Thực Tế (%)'] < 0) & (df_ket_qua['Lãi AI Dự Báo (%)'] < 0), "✅ Cùng Lỗ (Đoán đúng)", 
                         "❌ Lệch Hướng")
                     )
                     
-                    # Sắp xếp lại thứ tự cột
                     df_ket_qua = df_ket_qua[['Mã CP', 'Tín Hiệu Ban Đầu', 'Giá Vốn (T0)', 'Giá Chốt Lời (T+3)', 'Lãi AI Dự Báo (%)', 'Lãi Thực Tế (%)', 'Chấm Điểm AI']]
                     
                     st.success(f"Bảng đối chiếu kết quả giao dịch từ {phien_mua} đến {phien_ban}:")

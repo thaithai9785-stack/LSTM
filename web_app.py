@@ -5,7 +5,7 @@ from tensorflow.keras.models import load_model
 from vnstock.api.quote import Quote
 from sklearn.preprocessing import MinMaxScaler
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone # Bổ sung thư viện xử lý múi giờ
 import gspread 
 import threading 
 import time 
@@ -26,11 +26,14 @@ def get_gspread_client():
 
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1NveHlCyiFd4-tbVH-dV9K2vPqydD-jPgPL75aIOCCOA/edit"
 
-# --- HÀM KÉO API GỐC (ĐÃ SỬA LỖI NGÀY THÁNG) ---
+# --- HÀM KÉO API GỐC ---
 def lay_du_lieu_api(ma):
     q = Quote(symbol=ma, source='kbs')
-    # Tự động lấy ngày hôm nay, không bị kẹt giá cũ nữa
-    ngay_hien_tai = datetime.now().strftime('%Y-%m-%d') 
+    
+    # Lấy ngày hiện tại theo giờ Việt Nam
+    mui_gio_vn = timezone(timedelta(hours=7))
+    ngay_hien_tai = datetime.now(mui_gio_vn).strftime('%Y-%m-%d') 
+    
     return q.history(start='2024-01-01', end=ngay_hien_tai)
 
 # --- CẦU DAO LUỒNG NGẦM ---
@@ -50,7 +53,6 @@ def lay_du_lieu_an_toan(ma, timeout_sec=15):
     if t.is_alive():
         return None 
     return ket_qua['df']
-
 
 tab_quet, tab_lich_su, tab_so_sanh = st.tabs(["📊 Bảng Điều Khiển T+3", "☁️ Lịch Sử Trên Mây", "⚖️ Đối Chiếu Lãi/Lỗ T+3"])
 
@@ -108,7 +110,9 @@ with tab_quet:
             
             du_lieu_luu_tru = []
             
-            thoi_gian_hien_tai = datetime.now()
+            # --- ĐÃ SỬA: Ép múi giờ về giờ Việt Nam (UTC+7) ---
+            mui_gio_vn = timezone(timedelta(hours=7))
+            thoi_gian_hien_tai = datetime.now(mui_gio_vn)
             ngay_quet = thoi_gian_hien_tai.strftime("%Y-%m-%d")
             gio_quet = thoi_gian_hien_tai.strftime("%H:%M:%S")
             
@@ -249,13 +253,11 @@ with tab_lich_su:
                 if phien_chon != "Tất cả các phiên":
                     df_hien_thi = df_history_dao_nguoc[df_history_dao_nguoc['Phiên Quét'] == phien_chon]
                     
-                    # NÚT XÓA RIÊNG PHIÊN ĐANG CHỌN
                     if st.button(f"🗑️ Xóa dữ liệu của riêng phiên {phien_chon}", type="primary"):
                         with st.spinner("Đang gỡ bỏ phiên này khỏi Google Sheets..."):
                             ngay_xoa, gio_xoa = phien_chon.split(" | ")
                             df_raw = pd.DataFrame(records)
                             
-                            # Giữ lại các dòng không trùng với Ngày và Giờ cần xóa
                             df_new = df_raw[~((df_raw['Ngày'].astype(str) == ngay_xoa) & (df_raw['Giờ'].astype(str) == gio_xoa))]
                             
                             worksheet.clear()
